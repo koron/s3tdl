@@ -1,0 +1,7 @@
+*~
+default.pgo
+tags
+tmp/
+
+*.exe
+s3tdl
