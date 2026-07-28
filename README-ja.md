@@ -16,7 +16,7 @@ Go がインストールされている環境では、以下のコマンドで�
 $ go install github.com/koron/s3tdl@latest
 ```
 
-または [最新のリリース](releases/latest) からコンパイル済みバイナリを直接ダウンロードすることもできます。
+または [最新のリリース](https://github.com/koron/s3tdl/releases/latest) からコンパイル済みバイナリを直接ダウンロードすることもできます。
 
 ## 使い方
 

@@ -16,7 +16,7 @@ If you have Go installed, you can install or update the tool with the following 
 $ go install github.com/koron/s3tdl@latest
 ```
 
-Alternatively, you can download compiled binaries directly from the [latest releases](https://www.google.com/search?q=releases/latest).
+Alternatively, you can download compiled binaries directly from the [latest releases](https://github.com/koron/s3tdl/releases/latest).
 
 ## Usage
 
