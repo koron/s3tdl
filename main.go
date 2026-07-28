@@ -10,9 +10,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/apache/iceberg-go/catalog/rest"
+	"github.com/apache/iceberg-go/table"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -22,20 +25,57 @@ import (
 )
 
 var (
-	optARN    string
-	optOutdir string
-	optDryrun bool
+	optARN     string
+	optOutdir  string
+	optDryrun  bool
+	optVerbose bool
+
+	optNS    string
+	optTable string
 )
 
 func main() {
 	flag.StringVar(&optARN, "arn", "", `ARN for S3 Tables bucket`)
 	flag.StringVar(&optOutdir, "outdir", ".", `Output dir for downloaded data files`)
 	flag.BoolVar(&optDryrun, "dryrun", false, `Dryrun, not actually download`)
+	flag.BoolVar(&optVerbose, "verbose", false, `Show verbose message`)
+	flag.StringVar(&optNS, "namespace", "", `Namespace filter regexp`)
+	flag.StringVar(&optTable, "table", "", `Table filter regexp`)
 	flag.Parse()
 
 	if err := run(context.Background()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+var rxNS = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(optNS)
+})
+
+func matchNamespaceFilter(id table.Identifier) bool {
+	if optNS == "" {
+		return true
+	}
+	return rxNS().MatchString(id2str(id))
+}
+
+var rxTable = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(optTable)
+})
+
+func matchTableFilter(id table.Identifier) bool {
+	if optTable == "" {
+		return true
+	}
+	return rxTable().MatchString(id2str(id))
+}
+
+func id2str(id table.Identifier) string {
+	return strings.Join(id, ".")
+}
+
+func id2path(id table.Identifier) string {
+	return filepath.Join(id...)
 }
 
 func run(ctx context.Context) error {
@@ -70,20 +110,31 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Namespaces: %+v\n", namespaces)
 
 	// Prepare S3 client to access the head of data file.
 	client := s3.NewFromConfig(cfg)
 
 	// Retrieve data files for all tables from each namespace.
 	for _, ns := range namespaces {
-		for id, err := range cat.ListTables(ctx, ns) {
+		if !matchNamespaceFilter(ns) {
+			log.Printf("Skip namespace: %s", id2str(ns))
+			continue
+		}
+		if optVerbose {
+			log.Printf("Namespace: %s", id2str(ns))
+		}
+		for tbl, err := range cat.ListTables(ctx, ns) {
 			if err != nil {
 				return err
 			}
-			fmt.Println()
-			fmt.Printf("Table: %s\n", id)
-			table, err := cat.LoadTable(ctx, id)
+			if !matchTableFilter(tbl) {
+				log.Printf("Skip table: %s", id2str(tbl))
+				continue
+			}
+			if optVerbose {
+				log.Printf("Table: %s", id2str(tbl))
+			}
+			table, err := cat.LoadTable(ctx, tbl)
 			if err != nil {
 				return err
 			}
@@ -95,8 +146,8 @@ func run(ctx context.Context) error {
 			for i, task := range tasks {
 				// Retrieve the header of a data file from a path using the AWS S3 SDK.
 				path := task.File.FilePath()
-				fmt.Printf("#%d FilePath=%s\n", i, path)
-				_, err := getBody(ctx, client, path, optOutdir)
+				outdir := filepath.Join(optOutdir, id2path(tbl))
+				_, err := getBody(ctx, client, i, path, outdir)
 				if err != nil {
 					return err
 				}
@@ -107,7 +158,7 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-func getBody(ctx context.Context, client *s3.Client, s3url, outdir string) (string, error) {
+func getBody(ctx context.Context, client *s3.Client, n int, s3url, outdir string) (string, error) {
 	// Parse S3 URL
 	u, err := url.Parse(s3url)
 	if err != nil {
@@ -120,8 +171,11 @@ func getBody(ctx context.Context, client *s3.Client, s3url, outdir string) (stri
 	}
 	localName := filepath.Join(outdir, name)
 
-	fmt.Printf("getBody:\n    bucket=%s\n    key=%s\n    name=%s\n    localName=%s\n", bucket, key, name, localName)
+	if optVerbose {
+		log.Printf("getBody#%d:\n    bucket=%s\n    key=%s\n    name=%s\n    localName=%s", n, bucket, key, name, localName)
+	}
 	if optDryrun {
+		log.Printf("Dryrun: skip download: %s", localName)
 		return localName, nil
 	}
 
