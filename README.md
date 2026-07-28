@@ -18,7 +18,7 @@ $ go install github.com/koron/s3tdl@latest
 
 ## 使い方
 
-`-arn` オプション で S3 Tables バケットのARNを指定して実行すると、
+オプション `-arn` で S3 Tables バケットのARNを指定して実行すると、
 Parquet ファイルをダウンロードします。
 
 ```console
@@ -27,7 +27,7 @@ $ s3tdl -arn {S3 Tables bucket ARN}
 
 ### オプション
 
-| Name         | Description                                                    |
+| オプション   | 説明                                                           |
 |--------------|----------------------------------------------------------------|
 | `-arn`       | 対象の S3 Tables バケットの ARN (必須)                         |
 | `-dryrun`    | 実際のダウンロードを行わずに動作を確認                         |
