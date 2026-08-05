@@ -3,6 +3,7 @@ package download
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,8 +27,9 @@ import (
 	_ "github.com/apache/iceberg-go/io/gocloud"
 )
 
+var Download = subcmd.DefineCommand("download", "download data files", downloadCommand)
+
 var (
-	optARN     string
 	optOutdir  string
 	optDryrun  bool
 	optVerbose bool
@@ -36,19 +38,26 @@ var (
 	optTable string
 )
 
-func downloadDataFiles(ctx context.Context, args []string) error {
+func downloadCommand(ctx context.Context, args []string) error {
 	fs := subcmd.FlagSet(ctx)
-	fs.StringVar(&optARN, "arn", "", `ARN for S3 Tables bucket`)
 	fs.StringVar(&optOutdir, "outdir", ".", `Output dir for downloaded data files`)
 	fs.BoolVar(&optDryrun, "dryrun", false, `Dryrun, not actually download`)
 	fs.BoolVar(&optVerbose, "verbose", false, `Show verbose message`)
 	fs.StringVar(&optNS, "namespace", "", `Namespace filter regexp`)
 	fs.StringVar(&optTable, "table", "", `Table filter regexp`)
 	fs.Parse(args)
-	return run(ctx)
+	arns := fs.Args()
+	if len(arns) == 0 {
+		return errors.New("please specify one or more ARNs")
+	}
+	for _, arn := range arns {
+		err := downloadDatafiles(ctx, arn)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
-
-var DownloadCommand = subcmd.DefineCommand("download", "download data files", downloadDataFiles)
 
 var rxNS = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(optNS)
@@ -72,9 +81,9 @@ func matchTableFilter(id table.Identifier) bool {
 	return rxTable().MatchString(common.ID2Str(id))
 }
 
-func run(ctx context.Context) error {
+func downloadDatafiles(ctx context.Context, arn string) error {
 	// Parse the ARN to extract the service name and region.
-	parts := strings.SplitN(optARN, ":", 5)
+	parts := strings.SplitN(arn, ":", 5)
 	if len(parts) < 4 {
 		return fmt.Errorf("too short ARN: want=4 got=%d", len(parts))
 	}
@@ -91,7 +100,7 @@ func run(ctx context.Context) error {
 		ctx,
 		"Arbitrary catalog name",
 		fmt.Sprintf("https://s3tables.%s.amazonaws.com/iceberg", region),
-		rest.WithWarehouseLocation(optARN),
+		rest.WithWarehouseLocation(arn),
 		rest.WithSigV4RegionSvc(region, service),
 		rest.WithAwsConfig(cfg),
 	)
@@ -138,10 +147,9 @@ func run(ctx context.Context) error {
 				return err
 			}
 			for i, task := range tasks {
-				// Retrieve the header of a data file from a path using the AWS S3 SDK.
 				path := task.File.FilePath()
 				outdir := filepath.Join(optOutdir, common.ID2Path(tbl))
-				_, err := getBody(ctx, client, i, path, outdir)
+				_, err := downloadObject(ctx, client, i, path, outdir)
 				if err != nil {
 					return err
 				}
@@ -152,7 +160,7 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-func getBody(ctx context.Context, client *s3.Client, n int, s3url, outdir string) (string, error) {
+func downloadObject(ctx context.Context, client *s3.Client, n int, s3url, outdir string) (string, error) {
 	// Parse S3 URL
 	u, err := url.Parse(s3url)
 	if err != nil {

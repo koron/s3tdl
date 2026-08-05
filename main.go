@@ -9,7 +9,7 @@ import (
 )
 
 var rootSet = subcmd.DefineRootSet(
-	download.DownloadCommand,
+	download.Download,
 )
 
 func main() {
