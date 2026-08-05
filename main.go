@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/koron-go/subcmd"
 
 	// Necessary for S3(s3://) scheme
 	_ "github.com/apache/iceberg-go/io/gocloud"
@@ -34,16 +34,12 @@ var (
 	optTable string
 )
 
-func main() {
-	flag.StringVar(&optARN, "arn", "", `ARN for S3 Tables bucket`)
-	flag.StringVar(&optOutdir, "outdir", ".", `Output dir for downloaded data files`)
-	flag.BoolVar(&optDryrun, "dryrun", false, `Dryrun, not actually download`)
-	flag.BoolVar(&optVerbose, "verbose", false, `Show verbose message`)
-	flag.StringVar(&optNS, "namespace", "", `Namespace filter regexp`)
-	flag.StringVar(&optTable, "table", "", `Table filter regexp`)
-	flag.Parse()
+var rootSet = subcmd.DefineRootSet(
+	subcmd.DefineCommand("download", "download data files", downloadDataFiles),
+)
 
-	if err := run(context.Background()); err != nil {
+func main() {
+	if err := subcmd.Run(rootSet, os.Args[1:]...); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -202,4 +198,16 @@ func getBody(ctx context.Context, client *s3.Client, n int, s3url, outdir string
 	}
 
 	return localName, nil
+}
+
+func downloadDataFiles(ctx context.Context, args []string) error {
+	fs := subcmd.FlagSet(ctx)
+	fs.StringVar(&optARN, "arn", "", `ARN for S3 Tables bucket`)
+	fs.StringVar(&optOutdir, "outdir", ".", `Output dir for downloaded data files`)
+	fs.BoolVar(&optDryrun, "dryrun", false, `Dryrun, not actually download`)
+	fs.BoolVar(&optVerbose, "verbose", false, `Show verbose message`)
+	fs.StringVar(&optNS, "namespace", "", `Namespace filter regexp`)
+	fs.StringVar(&optTable, "table", "", `Table filter regexp`)
+	fs.Parse(args)
+	return run(ctx)
 }
