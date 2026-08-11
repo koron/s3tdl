@@ -105,7 +105,7 @@ func inspectCatalog(ctx context.Context, arn string) error {
 			// Current Snapshot:
 			if snapshot := table.CurrentSnapshot(); snapshot != nil {
 				lw.AppendItem("Current Snapshot:")
-				appendSnapshot(lw, table.CurrentSnapshot())
+				appendSnapshot(lw, snapshot)
 			}
 
 			schema := table.Schema()
@@ -120,13 +120,13 @@ func inspectCatalog(ctx context.Context, arn string) error {
 			if !sortOrder.IsUnsorted() {
 				lw.AppendItem(fmt.Sprintf("Sort Order: (ID: %d)", sortOrder.OrderID()))
 				lw.Indent()
-				for _, filed := range sortOrder.Fields() {
-					lw.AppendItem(filed)
+				for _, field := range sortOrder.Fields() {
+					lw.AppendItem(field)
 				}
 				lw.UnIndent()
 			}
 
-			// Partision Spec:
+			// Partition Spec:
 			partition := table.Spec()
 			if partition.IsUnpartitioned() {
 				lw.AppendItem("Partition Spec: unpartitioned")
