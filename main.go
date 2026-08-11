@@ -6,10 +6,12 @@ import (
 
 	"github.com/koron-go/subcmd"
 	"github.com/koron/s3tdl/internal/download"
+	"github.com/koron/s3tdl/internal/inspect"
 )
 
 var rootSet = subcmd.DefineRootSet(
 	download.Download,
+	inspect.Inspect,
 )
 
 func main() {
