@@ -15,10 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/apache/iceberg-go/table"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/koron-go/subcmd"
 	"github.com/koron/s3tdl/internal/common"
@@ -82,28 +80,7 @@ func matchTableFilter(id table.Identifier) bool {
 }
 
 func downloadDatafiles(ctx context.Context, arn string) error {
-	// Parse the ARN to extract the service name and region.
-	parts := strings.SplitN(arn, ":", 5)
-	if len(parts) < 4 {
-		return fmt.Errorf("too short ARN: want=4 got=%d", len(parts))
-	}
-	service, region := parts[2], parts[3]
-
-	// Load AWS default configuration.
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	if err != nil {
-		return err
-	}
-
-	// Create a catalog to access S3 Tables.
-	cat, err := rest.NewCatalog(
-		ctx,
-		"Arbitrary catalog name",
-		fmt.Sprintf("https://s3tables.%s.amazonaws.com/iceberg", region),
-		rest.WithWarehouseLocation(arn),
-		rest.WithSigV4RegionSvc(region, service),
-		rest.WithAwsConfig(cfg),
-	)
+	cat, err := common.NewCatalog(ctx, arn)
 	if err != nil {
 		return err
 	}
@@ -115,7 +92,7 @@ func downloadDatafiles(ctx context.Context, arn string) error {
 	}
 
 	// Prepare S3 client to access the head of data file.
-	client := s3.NewFromConfig(cfg)
+	client := s3.NewFromConfig(cat.AwsConfig)
 
 	// Retrieve data files for all tables from each namespace.
 	for _, ns := range namespaces {
