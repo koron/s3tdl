@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -74,14 +75,7 @@ func inspectCatalog(ctx context.Context, arn string) error {
 		if err != nil {
 			log.Printf("failed to LoadNamespaceProperties: %s", err)
 		}
-		if len(props) > 0 {
-			lw.AppendItem(fmt.Sprintf("Properties (%d):", len(props)))
-			lw.Indent()
-			for k, v := range props {
-				lw.AppendItem(fmt.Sprintf("%s: %s", k, v))
-			}
-			lw.UnIndent()
-		}
+		appendProperties(lw, props)
 
 		for _, tableID := range tableIDs {
 			table, err := cat.LoadTable(ctx, tableID)
@@ -195,14 +189,7 @@ func appendSnapshot(lw list.Writer, snapshot *table.Snapshot) {
 		lw.AppendItem("Summary:")
 		lw.Indent()
 		lw.AppendItem(fmt.Sprintf("Operation: %s", snapshot.Summary.Operation))
-		if len(snapshot.Summary.Properties) > 0 {
-			lw.AppendItem(fmt.Sprintf("Properties (%d):", len(snapshot.Summary.Properties)))
-			lw.Indent()
-			for k, v := range snapshot.Summary.Properties {
-				lw.AppendItem(fmt.Sprintf("%s: %s", k, v))
-			}
-			lw.UnIndent()
-		}
+		appendProperties(lw, snapshot.Summary.Properties)
 		lw.UnIndent()
 	}
 	if snapshot.SchemaID != nil {
@@ -213,6 +200,23 @@ func appendSnapshot(lw list.Writer, snapshot *table.Snapshot) {
 	}
 	if snapshot.AddedRows != nil {
 		lw.AppendItem(fmt.Sprintf("Added Rows: %d", snapshot.AddedRows))
+	}
+	lw.UnIndent()
+}
+
+func appendProperties(lw list.Writer, props iceberg.Properties) {
+	if len(props) == 0 {
+		return
+	}
+	lw.AppendItem(fmt.Sprintf("Properties (%d):", len(props)))
+	lw.Indent()
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		lw.AppendItem(fmt.Sprintf("%s: %s", k, props[k]))
 	}
 	lw.UnIndent()
 }
