@@ -6,7 +6,8 @@
 
 [Engilish](README.md) | [日本語](README-ja.md)
 
-AWS S3 Tables バケットを指定して、そのバケット内のテーブルを構成するParquetファイルをダウンロードするツールです。
+AWS S3 Tables バケットを指定して、そのバケット内のテーブルを構成するParquetファイルをダウンロードし、
+バケットの Iceberg カタログを inspect できるツールです。
 
 ## インストール
 
@@ -20,26 +21,49 @@ $ go install github.com/koron/s3tdl@latest
 
 ## 使い方
 
-オプション `-arn` で S3 Tables バケットのARNを指定して実行すると、
-Parquet ファイルをダウンロードします。
+このツールには、以下のサブコマンドがあります。
 
 ```console
-$ s3tdl -arn {S3 Tables bucket ARN}
+$ s3tdl download {S3 Tables bucket ARN} [...]
+$ s3tdl inspect {S3 Tables bucket ARN}
+```
+
+### `download` サブコマンド
+
+`download` サブコマンドに S3 Tables バケットのARNを指定すると、
+テーブルを構成する Parquet ファイルをダウンロードします。
+
+```console
+$ s3tdl download {S3 Tables bucket ARN}
 ```
 
 デフォルトでは、S3 Tables バケット内のすべての名前空間 (Namespace) の全テーブルがダウンロード対象となります。
 対象を一部に制限したい場合は、-namespace や -table オプションで正規表現フィルターを指定してください。
 
-### オプション
+#### オプション
 
 | オプション   | 説明                                                           |
 |--------------|----------------------------------------------------------------|
-| `-arn`       | 対象の S3 Tables バケットの ARN (必須)                         |
 | `-dryrun`    | 実際のダウンロードを行わずに動作を確認                         |
 | `-namespace` | ダウンロード対象の Namespace を正規表現でフィルター            |
 | `-table`     | ダウンロード対象のテーブル名を正規表現でフィルター             |
 | `-outdir`    | ファイルの出力先ディレクトリ (デフォルト: `.`)                 |
 | `-verbose`   | 詳細ログを表示                                                 |
+
+### `inspect` サブコマンド
+
+`inspect` サブコマンドに S3 Tables バケットのARNを指定すると、
+バケットの Iceberg カタログを inspect します。
+
+```console
+$ s3tdl inspect {S3 Tables bucket ARN}
+```
+
+すべての名前空間を列挙し、各テーブルについて名前空間のプロパティ、テーブルメタデータ、
+現在のスナップショット、スキーマ、ソート順、パーティション仕様を表示します。
+読み取り専用で、データファイルはダウンロードしません。
+
+このサブコマンドは、バケットARN以外のオプションは受け付けません。
 
 ### 認証情報
 

@@ -6,7 +6,7 @@
 
 [Engilish](README.md) | [日本語](README-ja.md)
 
-A tool to download Parquet files that compose tables within a specified AWS S3 Tables bucket.
+A tool to download Parquet files that compose tables within a specified AWS S3 Tables bucket, and to inspect the Iceberg catalog of that bucket.
 
 ## Installation
 
@@ -20,25 +20,45 @@ Alternatively, you can download compiled binaries directly from the [latest rele
 
 ## Usage
 
-Run the tool specifying the S3 Tables bucket ARN with the `-arn` option to download the Parquet files:
+This tool provides the following sub-commands:
 
 ```console
-$ s3tdl -arn {S3 Tables bucket ARN}
+$ s3tdl download {S3 Tables bucket ARN} [...]
+$ s3tdl inspect {S3 Tables bucket ARN}
+```
+
+### `download` sub-command
+
+Run the `download` sub-command specifying one or more S3 Tables bucket ARNs to download the Parquet data files of the tables:
+
+```console
+$ s3tdl download {S3 Tables bucket ARN}
 ```
 
 By default, all tables across all namespaces in the S3 Tables bucket are included for download.
 If you wish to limit the scope, please specify a regular expression filter using the `-namespace` or `-table` options.
 
-### Options
+#### Options
 
 | Name | Description |
 | --- | --- |
-| `-arn` | Target S3 Tables bucket ARN (required) |
 | `-dryrun` | Check execution behavior without downloading files |
 | `-namespace` | Filter target Namespaces using regular expressions |
 | `-table` | Filter target table names using regular expressions |
 | `-outdir` | Output directory for downloaded files (default: `.`) |
 | `-verbose` | Display detailed logs |
+
+### `inspect` sub-command
+
+Run the `inspect` sub-command specifying one or more S3 Tables bucket ARNs to inspect the Iceberg catalog of the bucket:
+
+```console
+$ s3tdl inspect {S3 Tables bucket ARN}
+```
+
+It lists all namespaces, and for each table it shows the namespace properties, the table metadata, the current snapshot, the schema, the sort order, and the partition spec. It is read-only and does not download any data files.
+
+This sub-command does not accept any options other than the bucket ARNs.
 
 ### Authentication Credentials
 
