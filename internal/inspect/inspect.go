@@ -193,7 +193,7 @@ func appendSnapshot(lw list.Writer, snapshot *table.Snapshot) {
 		lw.UnIndent()
 	}
 	if snapshot.SchemaID != nil {
-		lw.AppendItem(fmt.Sprintf("Schema ID: %d", snapshot.SchemaID))
+		lw.AppendItem(fmt.Sprintf("Schema ID: %d", *snapshot.SchemaID))
 	}
 	if snapshot.FirstRowID != nil {
 		lw.AppendItem(fmt.Sprintf("First Row ID: %d", snapshot.FirstRowID))
