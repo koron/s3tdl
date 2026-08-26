@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/apache/iceberg-go/catalog/rest"
@@ -18,8 +17,9 @@ type Config struct {
 }
 
 type AWSOptions struct {
-	Profile string `yaml:"profile"`
-	Region  string `yaml:"region"`
+	Profile    string `yaml:"profile"`
+	Region     string `yaml:"region"`
+	S3Endpoint string `yaml:"s3-endpoint"`
 }
 
 type RestOptions struct {
@@ -36,6 +36,13 @@ type CatalogConfig struct {
 	Scope       string       `yaml:"scope"`
 	AWS         *AWSOptions  `yaml:"aws,omitempty"`
 	RestOptions *RestOptions `yaml:"rest,omitempty"`
+}
+
+func (cc *CatalogConfig) S3Endpoint() string {
+	if cc.AWS == nil {
+		return ""
+	}
+	return cc.AWS.S3Endpoint
 }
 
 func LoadCatalogConfig(configPath string, catalogName string) (*CatalogConfig, error) {
@@ -91,11 +98,9 @@ func NewCatalogFromConfig(ctx context.Context, configPath string, catalogName st
 	if ao := cfg.AWS; ao != nil {
 		var awsopts []func(*awsconfig.LoadOptions) error
 		if ao.Profile != "" {
-			log.Printf("HERE1: %s", ao.Profile)
 			awsopts = append(awsopts, awsconfig.WithSharedConfigProfile(ao.Profile))
 		}
 		if ao.Region != "" {
-			log.Printf("HERE2: %s", ao.Region)
 			awsopts = append(awsopts, awsconfig.WithRegion(ao.Region))
 		}
 		awscfg, err = awsconfig.LoadDefaultConfig(ctx, awsopts...)
@@ -113,7 +118,7 @@ func NewCatalogFromConfig(ctx context.Context, configPath string, catalogName st
 	return &Catalog{
 		Catalog:   cat,
 		Config:    cfg,
-		AwsConfig: awscfg,
+		AWSConfig: awscfg,
 	}, nil
 }
 

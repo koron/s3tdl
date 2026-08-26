@@ -44,8 +44,7 @@ type Catalog struct {
 	*rest.Catalog
 
 	Config    *CatalogConfig
-	ARN       ARN
-	AwsConfig aws.Config
+	AWSConfig aws.Config
 }
 
 func NewCatalog(ctx context.Context, arnStr string) (Catalog, error) {
@@ -75,7 +74,6 @@ func NewCatalog(ctx context.Context, arnStr string) (Catalog, error) {
 
 	return Catalog{
 		Catalog:   cat,
-		ARN:       arn,
-		AwsConfig: cfg,
+		AWSConfig: cfg,
 	}, nil
 }
