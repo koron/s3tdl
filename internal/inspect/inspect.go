@@ -11,10 +11,16 @@ import (
 	"time"
 
 	"github.com/apache/iceberg-go"
+	icebergio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
 	"github.com/jedib0t/go-pretty/v6/list"
 	"github.com/koron-go/subcmd"
 	"github.com/koron/s3tdl/internal/common"
+)
+
+var (
+	verbose bool
+	deleted bool
 )
 
 var Inspect = subcmd.DefineCommand("inspect", "inspect S3 Tables (Iceberg catalog)", inspectCommand)
@@ -22,6 +28,8 @@ var Inspect = subcmd.DefineCommand("inspect", "inspect S3 Tables (Iceberg catalo
 func inspectCommand(ctx context.Context, args []string) error {
 	fs := subcmd.FlagSet(ctx)
 	common.InitFlagSet(fs)
+	fs.BoolVar(&verbose, "verbose", false, "show detailed stats")
+	fs.BoolVar(&deleted, "deleted", false, "show deleted data files")
 	fs.Parse(args)
 	return inspectCatalog(ctx)
 }
@@ -73,6 +81,7 @@ func inspectCatalog(ctx context.Context) error {
 				log.Printf("failed to LoadTable: %s", err)
 				continue
 			}
+
 			lw.AppendItem(common.ID2Str(tableID[len(ns):]))
 			lw.Indent()
 
@@ -87,7 +96,8 @@ func inspectCatalog(ctx context.Context) error {
 			}
 
 			// Current Snapshot:
-			if snapshot := table.CurrentSnapshot(); snapshot != nil {
+			snapshot := table.CurrentSnapshot()
+			if snapshot != nil {
 				lw.AppendItem("Current Snapshot:")
 				appendSnapshot(lw, snapshot)
 			}
@@ -122,6 +132,17 @@ func inspectCatalog(ctx context.Context) error {
 					lw.AppendItem(fmt.Sprintf("%s: %s(%s)", pf.Name, pf.Transform, src))
 				}
 				lw.UnIndent()
+			}
+
+			// Manifest List
+			if snapshot != nil {
+				tableIO, err := table.FS(ctx)
+				if err != nil {
+					return err
+				}
+				if err := appendManifestList(lw, tableIO, snapshot); err != nil {
+					return err
+				}
 			}
 
 			lw.UnIndent()
@@ -208,5 +229,89 @@ func appendProperties(lw list.Writer, props iceberg.Properties) {
 	for _, k := range keys {
 		lw.AppendItem(fmt.Sprintf("%s: %s", k, props[k]))
 	}
+	lw.UnIndent()
+}
+
+func appendManifestList(lw list.Writer, tableIO icebergio.IO, snapshot *table.Snapshot) error {
+	mfList, err := snapshot.Manifests(tableIO)
+	if err != nil {
+		return err
+	}
+
+	lw.AppendItem(fmt.Sprintf("Manifest List (%d)", len(mfList)))
+	for mfIdx, mf := range mfList {
+		lw.Indent()
+		lw.AppendItem(fmt.Sprintf("[%d] Manifest", mfIdx))
+		lw.Indent()
+		lw.AppendItem(fmt.Sprintf("Version: %d", mf.Version()))
+		lw.AppendItem(fmt.Sprintf("FilePath: %s", mf.FilePath()))
+		lw.AppendItem(fmt.Sprintf("Length: %d", mf.Length()))
+		lw.AppendItem(fmt.Sprintf("PartitionSpecID: %d", mf.PartitionSpecID()))
+		lw.AppendItem(fmt.Sprintf("SnapshotID: %d", mf.SnapshotID()))
+		lw.AppendItem(fmt.Sprintf("AddedDataFiles: %d", mf.AddedDataFiles()))
+		lw.AppendItem(fmt.Sprintf("ExistingDataFiles: %d", mf.ExistingDataFiles()))
+		if deleted {
+			lw.AppendItem(fmt.Sprintf("DeletedDataFiles: %d", mf.DeletedDataFiles()))
+		}
+		lw.AppendItem(fmt.Sprintf("AddedRows: %d", mf.AddedRows()))
+		lw.AppendItem(fmt.Sprintf("ExistingRows: %d", mf.ExistingRows()))
+		if deleted {
+			lw.AppendItem(fmt.Sprintf("DeletedRows: %d", mf.DeletedRows()))
+		}
+		lw.AppendItem(fmt.Sprintf("SequenceNumber: %d", mf.SequenceNum()))
+		lw.AppendItem(fmt.Sprintf("MinSequenceNum: %d", mf.MinSequenceNum()))
+
+		meList, err := collectSeq2(mf.Entries(tableIO, !deleted))
+		if err != nil {
+			return err
+		}
+
+		lw.AppendItem(fmt.Sprintf("ManifestEntries (%d)", len(meList)))
+		lw.Indent()
+		for meIdx, me := range meList {
+			lw.AppendItem(fmt.Sprintf("[%d] ManifestEntry", meIdx))
+			lw.Indent()
+			lw.AppendItem(fmt.Sprintf("Status: %v", me.Status()))
+			lw.AppendItem(fmt.Sprintf("SnapshotID: %d", me.SnapshotID()))
+			lw.AppendItem(fmt.Sprintf("SequenceNum: %d", me.SequenceNum()))
+			if p := me.FileSequenceNum(); p != nil {
+				lw.AppendItem(fmt.Sprintf("FileSequenceNum: %d", *p))
+			}
+			appendDataFile(lw, me.DataFile())
+			lw.UnIndent()
+		}
+		lw.UnIndent()
+
+		lw.UnIndent()
+		lw.UnIndent()
+	}
+	return nil
+}
+
+func appendDataFile(lw list.Writer, df iceberg.DataFile) {
+	if df == nil {
+		return
+	}
+	lw.AppendItem("DataFile")
+	lw.Indent()
+	lw.AppendItem(fmt.Sprintf("ContentType: %v", df.ContentType()))
+	lw.AppendItem(fmt.Sprintf("FilePath: %s", df.FilePath()))
+	lw.AppendItem(fmt.Sprintf("FileFormat: %v", df.FileFormat()))
+	if verbose {
+		lw.AppendItem(fmt.Sprintf("Partition: %v", df.Partition()))
+	}
+	lw.AppendItem(fmt.Sprintf("Count: %d", df.Count()))
+	lw.AppendItem(fmt.Sprintf("FileSizeBytes: %d", df.FileSizeBytes()))
+
+	if verbose {
+		lw.AppendItem(fmt.Sprintf("ColumnSizes: %v", df.ColumnSizes()))
+		lw.AppendItem(fmt.Sprintf("ValueCounts: %v", df.ValueCounts()))
+		lw.AppendItem(fmt.Sprintf("NullValueCounts: %v", df.NullValueCounts()))
+		lw.AppendItem(fmt.Sprintf("NaNValueCounts: %v", df.NaNValueCounts()))
+		lw.AppendItem(fmt.Sprintf("DistinctValueCounts: %v", df.DistinctValueCounts()))
+		lw.AppendItem(fmt.Sprintf("LowerBoundValues: %v", df.LowerBoundValues()))
+		lw.AppendItem(fmt.Sprintf("UpperBoundValues: %v", df.UpperBoundValues()))
+	}
+
 	lw.UnIndent()
 }
