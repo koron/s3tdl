@@ -3,7 +3,6 @@ package download
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -38,23 +37,14 @@ var (
 
 func downloadCommand(ctx context.Context, args []string) error {
 	fs := subcmd.FlagSet(ctx)
+	common.InitFlagSet(fs)
 	fs.StringVar(&optOutdir, "outdir", ".", `Output dir for downloaded data files`)
 	fs.BoolVar(&optDryrun, "dryrun", false, `Dryrun, not actually download`)
 	fs.BoolVar(&optVerbose, "verbose", false, `Show verbose message`)
 	fs.StringVar(&optNS, "namespace", "", `Namespace filter regexp`)
 	fs.StringVar(&optTable, "table", "", `Table filter regexp`)
 	fs.Parse(args)
-	arns := fs.Args()
-	if len(arns) == 0 {
-		return errors.New("please specify one or more ARNs")
-	}
-	for _, arn := range arns {
-		err := downloadDatafiles(ctx, arn)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return downloadDatafiles(ctx)
 }
 
 var rxNS = sync.OnceValue(func() *regexp.Regexp {
@@ -79,8 +69,8 @@ func matchTableFilter(id table.Identifier) bool {
 	return rxTable().MatchString(common.ID2Str(id))
 }
 
-func downloadDatafiles(ctx context.Context, arn string) error {
-	cat, err := common.NewCatalog(ctx, arn)
+func downloadDatafiles(ctx context.Context) error {
+	cat, err := common.DefaultCatalog(ctx)
 	if err != nil {
 		return err
 	}
@@ -92,7 +82,13 @@ func downloadDatafiles(ctx context.Context, arn string) error {
 	}
 
 	// Prepare S3 client to access the head of data file.
-	client := s3.NewFromConfig(cat.AwsConfig)
+	var opts []func(*s3.Options)
+	if endpoint := cat.Config.S3Endpoint(); endpoint != "" {
+		opts = append(opts, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+		})
+	}
+	client := s3.NewFromConfig(cat.AWSConfig, opts...)
 
 	// Retrieve data files for all tables from each namespace.
 	for _, ns := range namespaces {

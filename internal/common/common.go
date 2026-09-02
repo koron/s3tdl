@@ -10,7 +10,7 @@ import (
 	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/apache/iceberg-go/table"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 )
 
 func ID2Str(id table.Identifier) string {
@@ -43,8 +43,8 @@ func ParseARN(s string) (ARN, error) {
 type Catalog struct {
 	*rest.Catalog
 
-	ARN       ARN
-	AwsConfig aws.Config
+	Config    *CatalogConfig
+	AWSConfig aws.Config
 }
 
 func NewCatalog(ctx context.Context, arnStr string) (Catalog, error) {
@@ -54,7 +54,7 @@ func NewCatalog(ctx context.Context, arnStr string) (Catalog, error) {
 	}
 
 	// Load AWS default configuration.
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(arn.Region))
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(arn.Region))
 	if err != nil {
 		return Catalog{}, fmt.Errorf("failed to load AWS default config: %w", err)
 	}
@@ -74,7 +74,6 @@ func NewCatalog(ctx context.Context, arnStr string) (Catalog, error) {
 
 	return Catalog{
 		Catalog:   cat,
-		ARN:       arn,
-		AwsConfig: cfg,
+		AWSConfig: cfg,
 	}, nil
 }
