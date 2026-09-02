@@ -45,6 +45,31 @@ func collectSeq2[V any](it iter.Seq2[V, error]) ([]V, error) {
 	return arr, nil
 }
 
+type tsmillis int64
+
+func (ms tsmillis) String() string {
+	n := int64(ms)
+	return fmt.Sprintf("%d (%s)", n, time.UnixMilli(n).Format(time.RFC3339))
+}
+
+type listWriter struct {
+	list.Writer
+}
+
+func (lw listWriter) Append(v any) {
+	lw.Writer.AppendItem(v)
+}
+
+func (lw listWriter) Appendf(format string, a ...any) {
+	lw.Writer.AppendItem(fmt.Sprintf(format, a...))
+}
+
+func (lw listWriter) IndentFunc(fn func(listWriter)) {
+	lw.Writer.Indent()
+	fn(lw)
+	lw.Writer.UnIndent()
+}
+
 func inspectCatalog(ctx context.Context) error {
 	cat, err := common.DefaultCatalog(ctx)
 	if err != nil {
@@ -56,8 +81,9 @@ func inspectCatalog(ctx context.Context) error {
 		return err
 	}
 
-	lw := list.NewWriter()
-	lw.AppendItem(fmt.Sprintf("Namespaces (%d):", len(namespaces)))
+	lw := listWriter{Writer: list.NewWriter()}
+
+	lw.Appendf("Namespaces (%d):", len(namespaces))
 	lw.Indent()
 
 	for _, ns := range namespaces {
@@ -65,7 +91,7 @@ func inspectCatalog(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		lw.AppendItem(fmt.Sprintf("%s (tables: %d)", common.ID2Str(ns), len(tableIDs)))
+		lw.Appendf("%s (tables: %d)", common.ID2Str(ns), len(tableIDs))
 		lw.Indent()
 
 		// Namespace properties:
@@ -85,34 +111,34 @@ func inspectCatalog(ctx context.Context) error {
 			lw.AppendItem(common.ID2Str(tableID[len(ns):]))
 			lw.Indent()
 
-			metadata := table.Metadata()
-			if metadata != nil {
-				lw.AppendItem("Metadata:")
-				lw.Indent()
-				lw.AppendItem(fmt.Sprintf("Version: V%d", metadata.Version()))
-				lw.AppendItem(fmt.Sprintf("Table UUID: %v", metadata.TableUUID()))
-				lw.AppendItem(fmt.Sprintf("Location: %s", metadata.Location()))
-				lw.UnIndent()
-			}
-
-			// Current Snapshot:
-			snapshot := table.CurrentSnapshot()
-			if snapshot != nil {
-				lw.AppendItem("Current Snapshot:")
-				appendSnapshot(lw, snapshot)
-			}
+			lw.Appendf("Identifier: %s", common.ID2Str(table.Identifier()))
+			appendMetadata(lw, table.Metadata(), table.MetadataLocation())
 
 			schema := table.Schema()
-			lw.AppendItem(fmt.Sprintf("Schema: (ID: %d)", schema.ID))
+			lw.Appendf("Current Schema: (ID: %d)", schema.ID)
 			lw.Indent()
 			for _, f := range schema.Fields() {
-				lw.AppendItem(fmt.Sprintf("[%d] %s: %s (%s)", f.ID, f.Name, f.Type, optOrReq(f.Required)))
+				lw.Appendf("[%d] %s: %s (%s)", f.ID, f.Name, f.Type, optOrReq(f.Required))
 			}
 			lw.UnIndent()
 
-			sortOrder := table.SortOrder()
-			if !sortOrder.IsUnsorted() {
-				lw.AppendItem(fmt.Sprintf("Sort Order: (ID: %d)", sortOrder.OrderID()))
+			// Partition Spec:
+			partition := table.Spec()
+			if partition.IsUnpartitioned() {
+				lw.AppendItem("Current Partition Spec: unpartitioned")
+			} else {
+				lw.Appendf("Partition Spec: (ID: %d)", partition.ID())
+				lw.Indent()
+				for _, pf := range partition.Fields() {
+					src := sourceFields(schema, pf.SourceIDs)
+					lw.Appendf("%s: %s(%s)", pf.Name, pf.Transform, src)
+				}
+				lw.UnIndent()
+			}
+
+			// Sort order
+			if sortOrder := table.SortOrder(); !sortOrder.IsUnsorted() {
+				lw.Appendf("Current Sort Order: (ID: %d)", sortOrder.OrderID())
 				lw.Indent()
 				for _, field := range sortOrder.Fields() {
 					lw.AppendItem(field)
@@ -120,29 +146,18 @@ func inspectCatalog(ctx context.Context) error {
 				lw.UnIndent()
 			}
 
-			// Partition Spec:
-			partition := table.Spec()
-			if partition.IsUnpartitioned() {
-				lw.AppendItem("Partition Spec: unpartitioned")
-			} else {
-				lw.AppendItem(fmt.Sprintf("Partition Spec: (ID: %d)", partition.ID()))
-				lw.Indent()
-				for _, pf := range partition.Fields() {
-					src := sourceFields(schema, pf.SourceIDs)
-					lw.AppendItem(fmt.Sprintf("%s: %s(%s)", pf.Name, pf.Transform, src))
-				}
-				lw.UnIndent()
-			}
-
-			// Manifest List
+			// Current Snapshot:
+			snapshot := table.CurrentSnapshot()
 			if snapshot != nil {
+				// Manifest List
 				tableIO, err := table.FS(ctx)
 				if err != nil {
 					return err
 				}
-				if err := appendManifestList(lw, tableIO, snapshot); err != nil {
-					return err
-				}
+				lw.Append("Current Snapshot:")
+				lw.IndentFunc(func(lw listWriter) {
+					appendSnapshot(lw, snapshot, tableIO)
+				})
 			}
 
 			lw.UnIndent()
@@ -182,135 +197,163 @@ func optOrReq(required bool) string {
 	return "optional"
 }
 
-func appendSnapshot(lw list.Writer, snapshot *table.Snapshot) {
-	lw.Indent()
-	lw.AppendItem(fmt.Sprintf("Snapshot ID: %d", snapshot.SnapshotID))
-	if snapshot.ParentSnapshotID != nil {
-		lw.AppendItem(fmt.Sprintf("Parent Snapshot ID: %d", snapshot.ParentSnapshotID))
+func appendMetadata(lw listWriter, metadata table.Metadata, loc string) {
+	if metadata == nil {
+		return
 	}
-	lw.AppendItem(fmt.Sprintf("Sequence Number: %d", snapshot.SequenceNumber))
-	lw.AppendItem(fmt.Sprintf("Timestamp MS: %d (%s)",
-		snapshot.TimestampMs,
-		time.UnixMilli(snapshot.TimestampMs).Format(time.RFC3339)))
+	if loc == "" {
+		lw.Append("Metadata:")
+	} else {
+		lw.Appendf("Metadata: (location: %s)", loc)
+	}
+	lw.IndentFunc(func(lw listWriter) {
+		lw.Appendf("Version: V%d", metadata.Version())
+		lw.Appendf("Table UUID: %v", metadata.TableUUID())
+		lw.Appendf("Location: %s", metadata.Location())
+		lw.Appendf("Last Updated Millis: %s", tsmillis(metadata.LastUpdatedMillis()))
+		lw.Appendf("Last Column ID: %d", metadata.LastColumnID())
+		if schema := metadata.CurrentSchema(); schema != nil {
+			lw.Appendf("Current Schema ID: %d", schema.ID)
+		}
+		lw.Appendf("Default Partition Spec: %d", metadata.DefaultPartitionSpec())
+		if snapshot := metadata.CurrentSnapshot(); snapshot != nil {
+			lw.Appendf("Current Snapshot ID: %d", snapshot.SnapshotID)
+		}
+		appendProperties(lw, metadata.Properties())
+		lw.Appendf("Last Sequence Number: %d", metadata.LastSequenceNumber())
+		if metadata.Version() >= 3 {
+			lw.Appendf("Next Row ID: %d", metadata.NextRowID())
+		}
+	})
+}
+
+func appendSnapshot(lw listWriter, snapshot *table.Snapshot, tableIO icebergio.IO) {
+	lw.Appendf("Snapshot ID: %d", snapshot.SnapshotID)
+	if snapshot.ParentSnapshotID != nil {
+		lw.Appendf("Parent Snapshot ID: %d", snapshot.ParentSnapshotID)
+	}
+	lw.Appendf("Sequence Number: %d", snapshot.SequenceNumber)
+	lw.Appendf("Timestamp MS: %s", tsmillis(snapshot.TimestampMs))
 	if snapshot.ManifestList != "" {
-		lw.AppendItem(fmt.Sprintf("Manifest List: %s", snapshot.ManifestList))
+		lw.Appendf("Manifest List: %s", snapshot.ManifestList)
+		lw.Indent()
+		if err := appendManifestList(lw, snapshot, tableIO); err != nil {
+			log.Printf("failed to append ManifestList: %s", err)
+		}
+		lw.UnIndent()
 	}
 	// Summary
 	if snapshot.Summary != nil {
 		lw.AppendItem("Summary:")
-		lw.Indent()
-		lw.AppendItem(fmt.Sprintf("Operation: %s", snapshot.Summary.Operation))
-		appendProperties(lw, snapshot.Summary.Properties)
-		lw.UnIndent()
+		lw.IndentFunc(func(lw listWriter) {
+			lw.Appendf("Operation: %s", snapshot.Summary.Operation)
+			appendProperties(lw, snapshot.Summary.Properties)
+		})
 	}
 	if snapshot.SchemaID != nil {
-		lw.AppendItem(fmt.Sprintf("Schema ID: %d", *snapshot.SchemaID))
+		lw.Appendf("Schema ID: %d", *snapshot.SchemaID)
 	}
 	if snapshot.FirstRowID != nil {
-		lw.AppendItem(fmt.Sprintf("First Row ID: %d", snapshot.FirstRowID))
+		lw.Appendf("First Row ID: %d", snapshot.FirstRowID)
 	}
 	if snapshot.AddedRows != nil {
-		lw.AppendItem(fmt.Sprintf("Added Rows: %d", snapshot.AddedRows))
+		lw.Appendf("Added Rows: %d", snapshot.AddedRows)
 	}
-	lw.UnIndent()
 }
 
-func appendProperties(lw list.Writer, props iceberg.Properties) {
+func appendProperties(lw listWriter, props iceberg.Properties) {
 	if len(props) == 0 {
 		return
 	}
-	lw.AppendItem(fmt.Sprintf("Properties (%d):", len(props)))
+	lw.Appendf("Properties (%d):", len(props))
 	lw.Indent()
+	defer lw.UnIndent()
 	keys := make([]string, 0, len(props))
 	for k := range props {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
 	for _, k := range keys {
-		lw.AppendItem(fmt.Sprintf("%s: %s", k, props[k]))
+		lw.Appendf("%s: %s", k, props[k])
 	}
-	lw.UnIndent()
 }
 
-func appendManifestList(lw list.Writer, tableIO icebergio.IO, snapshot *table.Snapshot) error {
+func appendManifestList(lw listWriter, snapshot *table.Snapshot, tableIO icebergio.IO) error {
 	mfList, err := snapshot.Manifests(tableIO)
 	if err != nil {
 		return err
 	}
 
-	lw.AppendItem(fmt.Sprintf("Manifest List (%d)", len(mfList)))
 	for mfIdx, mf := range mfList {
+		lw.Appendf("[%d] Manifest", mfIdx)
 		lw.Indent()
-		lw.AppendItem(fmt.Sprintf("[%d] Manifest", mfIdx))
-		lw.Indent()
-		lw.AppendItem(fmt.Sprintf("Version: %d", mf.Version()))
-		lw.AppendItem(fmt.Sprintf("FilePath: %s", mf.FilePath()))
-		lw.AppendItem(fmt.Sprintf("Length: %d", mf.Length()))
-		lw.AppendItem(fmt.Sprintf("PartitionSpecID: %d", mf.PartitionSpecID()))
-		lw.AppendItem(fmt.Sprintf("SnapshotID: %d", mf.SnapshotID()))
-		lw.AppendItem(fmt.Sprintf("AddedDataFiles: %d", mf.AddedDataFiles()))
-		lw.AppendItem(fmt.Sprintf("ExistingDataFiles: %d", mf.ExistingDataFiles()))
+		lw.Appendf("Version: %d", mf.Version())
+		lw.Appendf("File Path: %s", mf.FilePath())
+		lw.Appendf("Length: %d", mf.Length())
+		lw.Appendf("Partition Spec ID: %d", mf.PartitionSpecID())
+		lw.Appendf("Snapshot ID: %d", mf.SnapshotID())
+		lw.Appendf("Added Data Files: %d", mf.AddedDataFiles())
+		lw.Appendf("Existing Data Files: %d", mf.ExistingDataFiles())
 		if deleted {
-			lw.AppendItem(fmt.Sprintf("DeletedDataFiles: %d", mf.DeletedDataFiles()))
+			lw.Appendf("Deleted Data Files: %d", mf.DeletedDataFiles())
 		}
-		lw.AppendItem(fmt.Sprintf("AddedRows: %d", mf.AddedRows()))
-		lw.AppendItem(fmt.Sprintf("ExistingRows: %d", mf.ExistingRows()))
+		lw.Appendf("Added Rows: %d", mf.AddedRows())
+		lw.Appendf("Existing Rows: %d", mf.ExistingRows())
 		if deleted {
-			lw.AppendItem(fmt.Sprintf("DeletedRows: %d", mf.DeletedRows()))
+			lw.Appendf("Deleted Rows: %d", mf.DeletedRows())
 		}
-		lw.AppendItem(fmt.Sprintf("SequenceNumber: %d", mf.SequenceNum()))
-		lw.AppendItem(fmt.Sprintf("MinSequenceNum: %d", mf.MinSequenceNum()))
+		lw.Appendf("Sequence Number: %d", mf.SequenceNum())
+		lw.Appendf("Min Sequence Num: %d", mf.MinSequenceNum())
 
-		meList, err := collectSeq2(mf.Entries(tableIO, !deleted))
-		if err != nil {
-			return err
-		}
-
-		lw.AppendItem(fmt.Sprintf("ManifestEntries (%d)", len(meList)))
+		lw.Append("Manifest Entries:")
 		lw.Indent()
-		for meIdx, me := range meList {
-			lw.AppendItem(fmt.Sprintf("[%d] ManifestEntry", meIdx))
+		var meIdx = 0
+		for me, err := range mf.Entries(tableIO, !deleted) {
+			if err != nil {
+				return err
+			}
+			lw.Appendf("[%d] Manifest Entry", meIdx)
 			lw.Indent()
-			lw.AppendItem(fmt.Sprintf("Status: %v", me.Status()))
-			lw.AppendItem(fmt.Sprintf("SnapshotID: %d", me.SnapshotID()))
-			lw.AppendItem(fmt.Sprintf("SequenceNum: %d", me.SequenceNum()))
+			lw.Appendf("Status: %v", me.Status())
+			lw.Appendf("Snapshot ID: %d", me.SnapshotID())
+			lw.Appendf("Sequence Num: %d", me.SequenceNum())
 			if p := me.FileSequenceNum(); p != nil {
-				lw.AppendItem(fmt.Sprintf("FileSequenceNum: %d", *p))
+				lw.Appendf("File SequenceNum: %d", *p)
 			}
 			appendDataFile(lw, me.DataFile())
 			lw.UnIndent()
+			meIdx++
 		}
 		lw.UnIndent()
 
-		lw.UnIndent()
 		lw.UnIndent()
 	}
 	return nil
 }
 
-func appendDataFile(lw list.Writer, df iceberg.DataFile) {
+func appendDataFile(lw listWriter, df iceberg.DataFile) {
 	if df == nil {
 		return
 	}
-	lw.AppendItem("DataFile")
+	lw.AppendItem("Data File")
 	lw.Indent()
-	lw.AppendItem(fmt.Sprintf("ContentType: %v", df.ContentType()))
-	lw.AppendItem(fmt.Sprintf("FilePath: %s", df.FilePath()))
-	lw.AppendItem(fmt.Sprintf("FileFormat: %v", df.FileFormat()))
+	lw.Appendf("Content Type: %v", df.ContentType())
+	lw.Appendf("File Path: %s", df.FilePath())
+	lw.Appendf("File Format: %v", df.FileFormat())
 	if verbose {
-		lw.AppendItem(fmt.Sprintf("Partition: %v", df.Partition()))
+		lw.Appendf("Partition: %v", df.Partition())
 	}
-	lw.AppendItem(fmt.Sprintf("Count: %d", df.Count()))
-	lw.AppendItem(fmt.Sprintf("FileSizeBytes: %d", df.FileSizeBytes()))
+	lw.Appendf("Count: %d", df.Count())
+	lw.Appendf("File Size Bytes: %d", df.FileSizeBytes())
 
 	if verbose {
-		lw.AppendItem(fmt.Sprintf("ColumnSizes: %v", df.ColumnSizes()))
-		lw.AppendItem(fmt.Sprintf("ValueCounts: %v", df.ValueCounts()))
-		lw.AppendItem(fmt.Sprintf("NullValueCounts: %v", df.NullValueCounts()))
-		lw.AppendItem(fmt.Sprintf("NaNValueCounts: %v", df.NaNValueCounts()))
-		lw.AppendItem(fmt.Sprintf("DistinctValueCounts: %v", df.DistinctValueCounts()))
-		lw.AppendItem(fmt.Sprintf("LowerBoundValues: %v", df.LowerBoundValues()))
-		lw.AppendItem(fmt.Sprintf("UpperBoundValues: %v", df.UpperBoundValues()))
+		lw.Appendf("Column Sizes: %v", df.ColumnSizes())
+		lw.Appendf("Value Counts: %v", df.ValueCounts())
+		lw.Appendf("Null Value Counts: %v", df.NullValueCounts())
+		lw.Appendf("NaN Value Counts: %v", df.NaNValueCounts())
+		lw.Appendf("Distinct Value Counts: %v", df.DistinctValueCounts())
+		lw.Appendf("Lower Bound Values: %v", df.LowerBoundValues())
+		lw.Appendf("Upper Bound Values: %v", df.UpperBoundValues())
 	}
 
 	lw.UnIndent()
