@@ -13,7 +13,6 @@ import (
 	"github.com/apache/iceberg-go"
 	icebergio "github.com/apache/iceberg-go/io"
 	"github.com/apache/iceberg-go/table"
-	"github.com/jedib0t/go-pretty/v6/list"
 	"github.com/koron-go/subcmd"
 	"github.com/koron/s3tdl/internal/common"
 )
@@ -52,24 +51,6 @@ func (ms tsmillis) String() string {
 	return fmt.Sprintf("%d (%s)", n, time.UnixMilli(n).Format(time.RFC3339))
 }
 
-type listWriter struct {
-	list.Writer
-}
-
-func (lw listWriter) Append(v any) {
-	lw.Writer.AppendItem(v)
-}
-
-func (lw listWriter) Appendf(format string, a ...any) {
-	lw.Writer.AppendItem(fmt.Sprintf(format, a...))
-}
-
-func (lw listWriter) IndentFunc(fn func(listWriter)) {
-	lw.Writer.Indent()
-	fn(lw)
-	lw.Writer.UnIndent()
-}
-
 func inspectCatalog(ctx context.Context) error {
 	cat, err := common.DefaultCatalog(ctx)
 	if err != nil {
@@ -81,7 +62,7 @@ func inspectCatalog(ctx context.Context) error {
 		return err
 	}
 
-	lw := listWriter{Writer: list.NewWriter()}
+	lw := newListWriter()
 
 	lw.Appendf("Namespaces (%d):", len(namespaces))
 	lw.Indent()
@@ -108,7 +89,7 @@ func inspectCatalog(ctx context.Context) error {
 				continue
 			}
 
-			lw.AppendItem(common.ID2Str(tableID[len(ns):]))
+			lw.Append(common.ID2Str(tableID[len(ns):]))
 			lw.Indent()
 
 			lw.Appendf("Identifier: %s", common.ID2Str(table.Identifier()))
@@ -125,13 +106,13 @@ func inspectCatalog(ctx context.Context) error {
 			// Partition Spec:
 			partition := table.Spec()
 			if partition.IsUnpartitioned() {
-				lw.AppendItem("Current Partition Spec: unpartitioned")
+				lw.Append("Current Partition Spec: unpartitioned")
 			} else {
 				lw.Appendf("Partition Spec: (ID: %d)", partition.ID())
 				lw.Indent()
 				for _, pf := range partition.Fields() {
 					src := sourceFields(schema, pf.SourceIDs)
-					lw.Appendf("%s: %s(%s)", pf.Name, pf.Transform, src)
+					lw.Appendf("%s (Field ID:%d) : %s(%s)", pf.Name, pf.FieldID, pf.Transform, src)
 				}
 				lw.UnIndent()
 			}
@@ -141,7 +122,7 @@ func inspectCatalog(ctx context.Context) error {
 				lw.Appendf("Current Sort Order: (ID: %d)", sortOrder.OrderID())
 				lw.Indent()
 				for _, field := range sortOrder.Fields() {
-					lw.AppendItem(field)
+					lw.Append(field)
 				}
 				lw.UnIndent()
 			}
@@ -165,11 +146,6 @@ func inspectCatalog(ctx context.Context) error {
 
 		lw.UnIndent()
 	}
-
-	style := list.StyleConnectedLight
-	style.CharItemSingle = style.CharItemBottom
-	style.CharItemTop = style.CharItemFirst
-	lw.SetStyle(style)
 
 	fmt.Printf("Warehouse: %s\n", cat.Config.Warehouse)
 	fmt.Println(lw.Render())
@@ -244,7 +220,7 @@ func appendSnapshot(lw listWriter, snapshot *table.Snapshot, tableIO icebergio.I
 	}
 	// Summary
 	if snapshot.Summary != nil {
-		lw.AppendItem("Summary:")
+		lw.Append("Summary:")
 		lw.IndentFunc(func(lw listWriter) {
 			lw.Appendf("Operation: %s", snapshot.Summary.Operation)
 			appendProperties(lw, snapshot.Summary.Properties)
@@ -314,7 +290,7 @@ func appendManifestList(lw listWriter, snapshot *table.Snapshot, tableIO iceberg
 			}
 			lw.Appendf("[%d] Manifest Entry", meIdx)
 			lw.Indent()
-			lw.Appendf("Status: %v", me.Status())
+			lw.Appendf("Status: %v", ManifestEntryStatus2String(me.Status()))
 			lw.Appendf("Snapshot ID: %d", me.SnapshotID())
 			lw.Appendf("Sequence Num: %d", me.SequenceNum())
 			if p := me.FileSequenceNum(); p != nil {
@@ -331,11 +307,18 @@ func appendManifestList(lw listWriter, snapshot *table.Snapshot, tableIO iceberg
 	return nil
 }
 
+func appendOptionalMap[K comparable, V any](lw listWriter, format string, m map[K]V) {
+	if len(m) == 0 {
+		return
+	}
+	lw.Appendf(format, m)
+}
+
 func appendDataFile(lw listWriter, df iceberg.DataFile) {
 	if df == nil {
 		return
 	}
-	lw.AppendItem("Data File")
+	lw.Append("Data File")
 	lw.Indent()
 	lw.Appendf("Content Type: %v", df.ContentType())
 	lw.Appendf("File Path: %s", df.FilePath())
@@ -347,13 +330,13 @@ func appendDataFile(lw listWriter, df iceberg.DataFile) {
 	lw.Appendf("File Size Bytes: %d", df.FileSizeBytes())
 
 	if verbose {
-		lw.Appendf("Column Sizes: %v", df.ColumnSizes())
-		lw.Appendf("Value Counts: %v", df.ValueCounts())
-		lw.Appendf("Null Value Counts: %v", df.NullValueCounts())
-		lw.Appendf("NaN Value Counts: %v", df.NaNValueCounts())
-		lw.Appendf("Distinct Value Counts: %v", df.DistinctValueCounts())
-		lw.Appendf("Lower Bound Values: %v", df.LowerBoundValues())
-		lw.Appendf("Upper Bound Values: %v", df.UpperBoundValues())
+		appendOptionalMap(lw, "Column Sizes: %v", df.ColumnSizes())
+		appendOptionalMap(lw, "Value Counts: %v", df.ValueCounts())
+		appendOptionalMap(lw, "Null Value Counts: %v", df.NullValueCounts())
+		appendOptionalMap(lw, "NaN Value Counts: %v", df.NaNValueCounts())
+		appendOptionalMap(lw, "Distinct Value Counts: %v", df.DistinctValueCounts())
+		appendOptionalMap(lw, "Lower Bound Values: %v", df.LowerBoundValues())
+		appendOptionalMap(lw, "Upper Bound Values: %v", df.UpperBoundValues())
 	}
 
 	lw.UnIndent()
