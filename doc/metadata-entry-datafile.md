@@ -3,7 +3,11 @@
 参考: <https://iceberg.apache.org/spec/#data-file-fields>
 
 -   `Partition` - パーティションのデータのタプル。
-    `partition specのfield id` + `なぞの数字`
+
+    `partition specのfield id` + `数字(パーティションの識別値)`。
+    パーティションの定義が `PARTITIONED BY (month(...))` の場合、
+    この数字は 1970年1月 を起点とした、経過月数となる。
+    実際のデータが `2024-01-XX` ならば、2024-1970=54年なのでx12して `648` となる。
 -   `Column Sizes` - カラム毎の、総データサイズ。
     `column id` + `バイト数` の形式。
     行指向フォーマットでは `null`
