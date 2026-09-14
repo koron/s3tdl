@@ -12,3 +12,5 @@ updates:
     groups:
       go-all-dependencies:
         patterns: ["*"]
+
+# $Hash:0ce5644667fe90c6d9b01d3e6dcdad0c6efbb981aac4f885fe0fb8c6$
