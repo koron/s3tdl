@@ -11,7 +11,7 @@ s3tdl is a single-module Go CLI (not a library) that downloads Iceberg table dat
 
 Go version: `go 1.25.9` (go.mod); CI uses `oldstable`.
 
-## Usage (code is the source of truth; both READMEs are stale)
+## Usage (no positional args; `README.md` / `README-ja.md` are the accurate, up-to-date usage docs)
 
 There are **no positional arguments**. All catalog access is driven by a YAML config:
 
@@ -38,5 +38,4 @@ AWS credentials use the standard AWS SDK for Go v2 default chain; profile/region
 ## Gotchas
 
 - `tmp/` is inside the Go module and is used as a scratch area (git-ignored). It currently holds a real `config.yaml` with live tokens — never commit or echo it. Any `.go` file left in `tmp/` breaks `go build ./...`, `make test`, and `make checkall`; scope builds to `go build . ./internal/...` or clean `tmp/` first.
-- `README.md` and `README-ja.md` still document the old positional-ARN usage; they are stale.
 - Releases are draft GitHub releases auto-created by the workflow from `vX.Y` tags; a `.norelease` file in a main package's directory excludes it from release.
