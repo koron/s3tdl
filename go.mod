@@ -6,7 +6,7 @@ require (
 	github.com/apache/iceberg-go v0.6.1-0.20260825205027-5f0827bb6288
 	github.com/aws/aws-sdk-go-v2 v1.47.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.4
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.0
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.1
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/koron-go/subcmd v0.0.4
 	gopkg.in/yaml.v3 v3.0.1
