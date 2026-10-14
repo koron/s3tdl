@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/apache/iceberg-go/catalog"
 	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/apache/iceberg-go/table"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -41,7 +42,7 @@ func ParseARN(s string) (ARN, error) {
 }
 
 type Catalog struct {
-	*rest.Catalog
+	catalog.Catalog
 
 	Config    *CatalogConfig
 	AWSConfig aws.Config
