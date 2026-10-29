@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/apache/iceberg-go/catalog"
+	"github.com/apache/iceberg-go/catalog/glue"
 	"github.com/apache/iceberg-go/catalog/rest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -17,8 +19,11 @@ type Config struct {
 }
 
 type AWSOptions struct {
-	Profile    string `yaml:"profile"`
-	Region     string `yaml:"region"`
+	Profile string `yaml:"profile"`
+	Region  string `yaml:"region"`
+
+	GlueID string `yaml:"glue-id"`
+
 	S3Endpoint string `yaml:"s3-endpoint"`
 }
 
@@ -29,6 +34,7 @@ type RestOptions struct {
 }
 
 type CatalogConfig struct {
+	Type        string       `yaml:"type"`
 	URI         string       `yaml:"uri"`
 	Warehouse   string       `yaml:"warehouse"`
 	Token       string       `yaml:"token"`
@@ -61,6 +67,9 @@ func LoadCatalogConfig(configPath string, catalogName string) (*CatalogConfig, e
 	if !ok {
 		return nil, fmt.Errorf("no catalogs with name: %s", catalogName)
 	}
+	if cc.Type == "" {
+		cc.Type = "rest"
+	}
 	return &cc, nil
 }
 
@@ -69,7 +78,33 @@ func NewCatalogFromConfig(ctx context.Context, configPath string, catalogName st
 	if err != nil {
 		return nil, err
 	}
+	var (
+		cat    catalog.Catalog
+		awscfg aws.Config
+	)
+	switch cfg.Type {
+	case "rest":
+		cat, awscfg, err = newRestCatalog(ctx, catalogName, cfg)
+		if err != nil {
+			return nil, err
+		}
+	case "glue":
+		cat, awscfg, err = newGlueCatalog(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unknown catalog type: %s", cfg.Type)
+	}
 
+	return &Catalog{
+		Catalog:   cat,
+		Config:    cfg,
+		AWSConfig: awscfg,
+	}, nil
+}
+
+func newRestCatalog(ctx context.Context, catalogName string, cfg *CatalogConfig) (catalog.Catalog, aws.Config, error) {
 	var opts []rest.Option
 
 	if cfg.Warehouse != "" {
@@ -103,23 +138,52 @@ func NewCatalogFromConfig(ctx context.Context, configPath string, catalogName st
 		if ao.Region != "" {
 			awsopts = append(awsopts, awsconfig.WithRegion(ao.Region))
 		}
-		awscfg, err = awsconfig.LoadDefaultConfig(ctx, awsopts...)
+		awscfg, err := awsconfig.LoadDefaultConfig(ctx, awsopts...)
 		if err != nil {
-			return nil, err
+			return nil, aws.Config{}, err
 		}
 		opts = append(opts, rest.WithAwsConfig(awscfg))
 	}
 
 	cat, err := rest.NewCatalog(ctx, catalogName, cfg.URI, opts...)
 	if err != nil {
-		return nil, err
+		return nil, aws.Config{}, err
 	}
 
-	return &Catalog{
-		Catalog:   cat,
-		Config:    cfg,
-		AWSConfig: awscfg,
-	}, nil
+	return cat, awscfg, nil
+}
+
+func newGlueCatalog(ctx context.Context, cfg *CatalogConfig) (catalog.Catalog, aws.Config, error) {
+	var opts []glue.Option
+
+	var awscfg aws.Config
+	if ao := cfg.AWS; ao != nil {
+		var awsopts []func(*awsconfig.LoadOptions) error
+		if ao.Profile != "" {
+			awsopts = append(awsopts, awsconfig.WithSharedConfigProfile(ao.Profile))
+		}
+		if ao.Region != "" {
+			awsopts = append(awsopts, awsconfig.WithRegion(ao.Region))
+		}
+		awscfg, err := awsconfig.LoadDefaultConfig(ctx, awsopts...)
+		if err != nil {
+			return nil, aws.Config{}, err
+		}
+		opts = append(opts, glue.WithAwsConfig(awscfg))
+
+		if ao.GlueID != "" {
+			opts = append(opts, glue.WithAwsProperties(glue.AwsProperties{
+				glue.CatalogIdKey: ao.GlueID,
+			}))
+		}
+	}
+
+	cat, err := glue.NewCatalog(opts...)
+	if err != nil {
+		return nil, aws.Config{}, err
+	}
+
+	return cat, awscfg, nil
 }
 
 var (

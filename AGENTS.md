@@ -1,6 +1,6 @@
 # AGENTS.md
 
-s3tdl is a single-module Go CLI (not a library) that downloads Iceberg table data files (Parquet) via an Iceberg REST catalog. It works with AWS S3 Tables and other REST catalogs (e.g. Cloudflare R2) through a YAML config file.
+s3tdl is a single-module Go CLI (not a library) that downloads Iceberg table data files (Parquet) through a YAML config file. Catalog backends: Iceberg REST (e.g. AWS S3 Tables, Cloudflare R2) and AWS Glue (`type: glue`).
 
 ## Commands
 
@@ -17,11 +17,11 @@ There are **no positional arguments**. All catalog access is driven by a YAML co
 
 ```console
 $ s3tdl download [-config tmp/config.yaml] [-catalog default] [-namespace rx] [-table rx] [-outdir DIR] [-dryrun] [-verbose]
-$ s3tdl inspect  [-config tmp/config.yaml] [-catalog default]
+$ s3tdl inspect  [-config tmp/config.yaml] [-catalog default] [-verbose] [-deleted]
 ```
 
-- `-config` (default `tmp/config.yaml`) and `-catalog` (default `default`) are defined in `internal/common/config.go:130` and shared by both subcommands.
-- Config format: top-level `catalog:` map; each entry has `uri` (REST endpoint), `warehouse`, optional `token`/`credential`/`scope`, `aws: {profile, region, s3-endpoint}`, `rest: {sigv4-enabled, signing-name, signing-region}`.
+- `-config` (default `tmp/config.yaml`) and `-catalog` (default `default`) are defined in `internal/common/config.go` (`InitFlagSet`) and shared by both subcommands.
+- Config format: top-level `catalog:` map; each entry has `type` (`rest` default or `glue`), `uri` (REST endpoint, `rest` only), `warehouse`, optional `token`/`credential`/`scope`, `aws: {profile, region, glue-id, s3-endpoint}`, `rest: {sigv4-enabled, signing-name, signing-region}`.
 - `aws.s3-endpoint` redirects the S3 GetObject client (e.g. Cloudflare R2); SigV4 options target AWS S3 Tables.
 - `-dryrun` lists/plans files without downloading — the cheapest way to verify a config against a real catalog.
 - Files are written to `-outdir/<ns>/<table>/<file basename>` (default `.`). Only the basename is used, so same-named files under different S3 prefixes overwrite each other.
