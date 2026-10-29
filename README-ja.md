@@ -42,6 +42,7 @@ catalog:
 
 | キー | 説明 |
 | --- | --- |
+| `type` | Icebergカタログのタイプ (`rest` と `glue` をサポート。省略時は `rest`) |
 | `uri` | Iceberg REST カタログのエンドポイント |
 | `warehouse` | ウェアハウス位置 (例: S3 Tables バケットのARN) |
 | `token` | REST カタログ用の静的 OAuth トークン (省略可) |
@@ -49,7 +50,8 @@ catalog:
 | `scope` | REST カタログ用の OAuth scope (省略可) |
 | `aws.profile` | 使用する AWS 共有設定プロファイル (省略可) |
 | `aws.region` | 使用する AWS リージョン (省略可) |
-| `aws.s3-endpoint` | データファイルのダウンロードに使用する代替 S3 エンドポイント。例: Cloudflare R2 (省略可) |
+| `aws.glue-id` | AWS Glue のカタログ ID (省略可, カタログタイプが `glue` の時に有効) |
+| `aws.s3-endpoint` | データファイルのダウンロードに使用する代替 S3 エンドポイント。例: Cloudflare R2 (省略可, カタログタイプが `rest` の時に有効) |
 | `rest.sigv4-enabled` | REST リクエストの SigV4 署名を有効にする (AWS S3 Tables) |
 | `rest.signing-name` | SigV4 署名用のサービス名 (例: `s3tables`) |
 | `rest.signing-region` | SigV4 署名用のリージョン |

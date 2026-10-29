@@ -41,6 +41,7 @@ catalog:
 
 | Key | Description |
 | --- | --- |
+| `type` | Iceberg catalog type. (Support only `rest` and `glue`. Default is `rest`) |
 | `uri` | Iceberg REST catalog endpoint |
 | `warehouse` | Warehouse location (e.g. an S3 Tables bucket ARN) |
 | `token` | Static OAuth token for the REST catalog (optional) |
@@ -48,7 +49,8 @@ catalog:
 | `scope` | OAuth scope for the REST catalog (optional) |
 | `aws.profile` | AWS shared config profile to use (optional) |
 | `aws.region` | AWS region to use (optional) |
-| `aws.s3-endpoint` | Alternate S3 endpoint for downloading data files, e.g. Cloudflare R2 (optional) |
+| `aws.glue-id` | AWS Glue catalog ID (optional, valid when `type` is `glue`) |
+| `aws.s3-endpoint` | Alternate S3 endpoint for downloading data files, e.g. Cloudflare R2 (optional, valid when `type` is `rest`) |
 | `rest.sigv4-enabled` | Enable SigV4 signing for REST requests (AWS S3 Tables) |
 | `rest.signing-name` | Service name for SigV4 signing (e.g. `s3tables`) |
 | `rest.signing-region` | Region for SigV4 signing |

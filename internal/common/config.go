@@ -19,8 +19,11 @@ type Config struct {
 }
 
 type AWSOptions struct {
-	Profile    string `yaml:"profile"`
-	Region     string `yaml:"region"`
+	Profile string `yaml:"profile"`
+	Region  string `yaml:"region"`
+
+	GlueID string `yaml:"glue-id"`
+
 	S3Endpoint string `yaml:"s3-endpoint"`
 }
 
@@ -167,6 +170,12 @@ func newGlueCatalog(ctx context.Context, cfg *CatalogConfig) (catalog.Catalog, a
 			return nil, aws.Config{}, err
 		}
 		opts = append(opts, glue.WithAwsConfig(awscfg))
+
+		if ao.GlueID != "" {
+			opts = append(opts, glue.WithAwsProperties(glue.AwsProperties{
+				glue.CatalogIdKey: ao.GlueID,
+			}))
+		}
 	}
 
 	cat, err := glue.NewCatalog(opts...)
